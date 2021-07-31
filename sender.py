@@ -58,8 +58,8 @@ class Sender:
     def retransmit(self, buffer, seq_num):
         for packet in buffer.packets:
             if packet.sequence_num == seq_num:
+                packet.time_sent = time.time()
                 self.send_packet(packet)
-
 
     # This function emulates packet drop by generating a random float in the range
     # [0, 1] and drops the packet if it is less than or equal to pdrop
@@ -84,7 +84,7 @@ class Sender:
         index += self.MSS
         # print(data)
         # print(index)
-        print("Payload is: " + payload)
+        # print("Payload is: " + payload)
         return payload
 
     def check_timeout(self, buffer):
@@ -168,6 +168,8 @@ def send_handler():
             if connected == True:
                 # If file completely sent, teardown connection
                 if index >= len(data):
+                    if buffer.size() > 0:
+                        continue
                     print("File transfer complete, commence teardown!")
                     teardown = True
                     seq_num += 1
@@ -320,7 +322,7 @@ else:
 
     # Grab data from file
     f = open(FileToSend, "r")
-    data = f.read(1024) #change to buffer size
+    data = f.read() 
     f.close()
 
     # File index
