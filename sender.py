@@ -60,6 +60,7 @@ class Sender:
             if packet.sequence_num == seq_num:
                 packet.time_sent = time.time()
                 self.send_packet(packet)
+                self.log(f, packet, "snd")
 
     # This function emulates packet drop by generating a random float in the range
     # [0, 1] and drops the packet if it is less than or equal to pdrop
@@ -88,6 +89,7 @@ class Sender:
         return payload
 
     def check_timeout(self, buffer):
+        global retransmitted_packets
         if (buffer.size() > 0):
             # Retransmit due to timeout
             curr_time = time.time()
@@ -99,7 +101,29 @@ class Sender:
             if time_since_sent > self.timeout:
                 print("Retransmitting due to timeout")
                 sender.retransmit(buffer, last_ack_num)
+                retransmitted_packets += 1
             #notify the thread waiting
+
+    def log(self, file, packet, action):
+        time_since_start = round(time.time() - start_time, 2)
+        packet_data_size = 0
+        packet_flag = ""
+        if packet.syn == True:
+            packet_flag += "S"
+        if packet.ack == True:
+            packet_flag += "A"
+        if packet.fin == True:
+            packet_flag += "F"
+        if packet.data != None:
+            packet_flag += "D"
+            packet_data_size = len(packet.data)
+        string = '{:<8s}{:<12s}{:<8s}{:<10s}{:<10s}{:<10s}'.format(str(action), 
+                  str(time_since_start), str(packet_flag), str(packet.sequence_num), 
+                  str(packet_data_size), str(packet.ack_num))
+        file.write(string + "\n")
+        # file.write(str(action) + "\t" + str(time_since_start) + "\t" + 
+        #            str(packet_flag) + "\t" + str(packet.sequence_num) + "\t" + 
+        #            str(packet_data_size) + "\t" + str(packet.ack_num) + "\n")
 
 
 class Packet:
@@ -150,6 +174,9 @@ def send_handler():
     global expected_ack_num
     global last_byte_sent
     global last_byte_acked
+    global f
+    global data_packets_sent
+    global packets_dropped
 
     while(1):
         with t_lock:
@@ -160,6 +187,7 @@ def send_handler():
                 print("Sending SYN packet!")
                 syn_packet = Packet(seq_num, ack_num, None, time.time(), syn=True, ack=False, fin=False)
                 sender.send_packet(syn_packet)
+                sender.log(f, syn_packet, "snd")
                 syn_sent = True
                 seq_num += 1
                 # Wait for SYNACK from receiver
@@ -175,6 +203,7 @@ def send_handler():
                     seq_num += 1
                     fin_packet = sender.create_fin_packet(seq_num, ack_num)
                     sender.send_packet(fin_packet)
+                    sender.log(f, fin_packet, "snd")
                     print("FIN packet sent!")
                     connected = False
                     sys.exit()
@@ -201,9 +230,13 @@ def send_handler():
                     print("Sending packet with sequence number: " + str(packet.sequence_num))
                     packet.time_sent = time.time()
                     if sender.PLD() == True:
+                        sender.log(f, packet, "drop")
+                        packets_dropped += 1
                         print("Packet dropped!")
                     else:
                         sender.send_packet(packet)
+                        sender.log(f, packet, "snd")
+                        data_packets_sent += 1
             #notify the thread waiting
             t_lock.notify()
         #sleep for UPDATE_INTERVAL
@@ -217,12 +250,18 @@ def recv_handler():
     global sender
     global awake
     global buffer
+    global data
     global last_ack_num
-    global num_duplicate_acks
+    global curr_duplicate_acks
     global expected_ack_num
+    global f
+    global packets_dropped
+    global retransmitted_packets
+    global total_duplicate_acks
 
     while(1):
         packet, client_address = sender.receive_packet()
+        sender.log(f, packet, "rcv")
         with t_lock:
             if packet.syn == True and packet.ack == True:
                 print("SYNACK received!")
@@ -232,11 +271,10 @@ def recv_handler():
                     ack_num += 1
                     ack_packet = Packet(seq_num, ack_num, None, time.time(), syn=False, ack=True, fin=False)
                     sender.send_packet(ack_packet)
+                    sender.log(f, ack_packet, "snd")
                     print ("Connection established!")
                     connected = True
                     print("Commence sending of data")
-
-            # Wait for ACK, retransmit if not received by timeout
             if packet.ack == True:
                 # Check if ACK acknowledges last sent packet seq_num
                 # Continue sending as per usual if ack_num is as expected
@@ -253,11 +291,13 @@ def recv_handler():
                 # 3 received
                 elif packet.ack_num == last_ack_num:
                     print("Duplicate ACK received!")
-                    num_duplicate_acks += 1
-                    if num_duplicate_acks == 3:
+                    curr_duplicate_acks += 1
+                    total_duplicate_acks += 1
+                    if curr_duplicate_acks == 3:
                         sender.retransmit(buffer, last_ack_num)
+                        retransmitted_packets += 1
                         print ("Retransmitted oldest unACKed packet!")
-                        num_duplicate_acks = 0
+                        curr_duplicate_acks = 0
                     
                 last_ack_num = packet.ack_num
 
@@ -267,8 +307,16 @@ def recv_handler():
                 ack_num += 1
                 ack_packet = Packet(seq_num, ack_num, None, time.time(), syn=False, ack=True, fin=False)
                 sender.send_packet(ack_packet)
+                sender.log(f, ack_packet, "snd")
                 print("Final ACK sent! Exiting...")
                 connected = False
+
+                # Complete log with final statistics and close file
+                f.write("Total Data Transferred: " + str(len(data)) + "\n" + "Data Segments Sent: " 
+                + str(data_packets_sent) + "\n" + "Packets Dropped: " + str(packets_dropped) + 
+                "\n" "Retransmitted Segments: " + str(retransmitted_packets)
+                + "\n" + "Duplicate ACKs Received: " + str(total_duplicate_acks) + "\n")
+                f.close()
                 awake = False
 
             t_lock.notify()
@@ -283,6 +331,7 @@ if len(sys.argv) != 9:
 else:
     # On state
     awake = True
+    start_time = time.time()
     
     # Grab args and place in variables
     receiver_host_ip = sys.argv[1]
@@ -305,8 +354,11 @@ else:
     ack_num = 0
     expected_ack_num = 0
     last_ack_num = 0
-    num_duplicate_acks = 0
-
+    curr_duplicate_acks = 0
+    data_packets_sent = 0
+    packets_dropped = 0
+    retransmitted_packets = 0
+    total_duplicate_acks = 0
     # Set seed
     random.seed(seed)
 
@@ -324,6 +376,13 @@ else:
     f = open(FileToSend, "r")
     data = f.read() 
     f.close()
+
+    # Create log file
+    f = open("Sender_log.txt", "a+")
+    string = '{:<8s}{:<12s}{:<8s}{:<10s}{:<10s}{:<10s}'.format("ACTION", "TIME",
+            "FLAGS", "SEQ", "DATA", "ACK")
+    f.write(string + "\n")
+    f.write("--------------------------------------------------------\n")
 
     # File index
     index = 0
