@@ -36,21 +36,21 @@ class Sender:
         packet = pickle.loads(data)
         return packet, client_address
 
-    def create_syn_packet(self, sequence_num, ack_num):
-        syn_packet = Packet(sequence_num, ack_num, None, None, syn=True, ack=False, fin=False)
-        return syn_packet
+    # def create_syn_packet(self, sequence_num, ack_num):
+    #     syn_packet = Packet(sequence_num, ack_num, None, None, syn=True, ack=False, fin=False)
+    #     return syn_packet
 
-    def create_data_packet(self, sequence_num, ack_num, data):
-        data_packet = Packet(sequence_num, ack_num, data, None, syn=False, ack=False, fin=False)
-        return data_packet
+    # def create_data_packet(self, sequence_num, ack_num, data):
+    #     data_packet = Packet(sequence_num, ack_num, data, None, syn=False, ack=False, fin=False)
+    #     return data_packet
 
-    def create_ack_packet(self, sequence_num, ack_num):
-        ack_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=True, fin=False)
-        return ack_packet
+    # def create_ack_packet(self, sequence_num, ack_num):
+    #     ack_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=True, fin=False)
+    #     return ack_packet
 
-    def create_fin_packet(self, sequence_num, ack_num):
-        fin_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=False, fin=True)
-        return fin_packet
+    # def create_fin_packet(self, sequence_num, ack_num):
+    #     fin_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=False, fin=True)
+    #     return fin_packet
 
     def send_packet(self, packet):
         self.socket.sendto(pickle.dumps(packet), (self.receiver_host_ip, self.receiver_port))
