@@ -2,6 +2,7 @@
 
 # COMP3331 21T2 Assignment 
 # Padawan Transport Protocol
+# Sender
 # Implemented in python3
 # By Cameron Huang
 # z5251618
@@ -83,9 +84,6 @@ class Sender:
         else:
             payload = data[index:end_segment]
         index += self.MSS
-        # print(data)
-        # print(index)
-        # print("Payload is: " + payload)
         return payload
 
     def check_timeout(self, buffer):
@@ -94,15 +92,9 @@ class Sender:
             # Retransmit due to timeout
             curr_time = time.time()
             time_since_sent = (curr_time - buffer.packets[0].time_sent) * 1000
-            # print("Current time is: " + str(curr_time))
-            # print("Time last packet sent: " + str(sender.time_last_pkt_sent))
-            # print("Timeout is: " + str(timeout))
-            # print("Time since last packet is: " + str(time_since_sent))
             if time_since_sent > self.timeout:
-                print("Retransmitting due to timeout")
                 sender.retransmit(buffer, last_ack_num)
                 retransmitted_packets += 1
-            #notify the thread waiting
 
     def log(self, file, packet, action):
         time_since_start = round(time.time() - start_time, 2)
@@ -121,9 +113,6 @@ class Sender:
                   str(time_since_start), str(packet_flag), str(packet.sequence_num), 
                   str(packet_data_size), str(packet.ack_num))
         file.write(string + "\n")
-        # file.write(str(action) + "\t" + str(time_since_start) + "\t" + 
-        #            str(packet_flag) + "\t" + str(packet.sequence_num) + "\t" + 
-        #            str(packet_data_size) + "\t" + str(packet.ack_num) + "\n")
 
 
 class Packet:
@@ -184,7 +173,6 @@ def send_handler():
             ############################################################################
             # No connection yet with receiver, so we'll commence 3 way handshake
             if connected == False and syn_sent == False:
-                print("Sending SYN packet!")
                 syn_packet = Packet(seq_num, ack_num, None, time.time(), syn=True, ack=False, fin=False)
                 sender.send_packet(syn_packet)
                 sender.log(f, syn_packet, "snd")
@@ -198,13 +186,11 @@ def send_handler():
                 if index >= len(data):
                     if buffer.size() > 0:
                         continue
-                    print("File transfer complete, commence teardown!")
                     teardown = True
                     seq_num += 1
                     fin_packet = sender.create_fin_packet(seq_num, ack_num)
                     sender.send_packet(fin_packet)
                     sender.log(f, fin_packet, "snd")
-                    print("FIN packet sent!")
                     connected = False
                     sys.exit()
 
@@ -213,7 +199,6 @@ def send_handler():
                 last_byte_acked = last_ack_num
                 if last_byte_sent - last_byte_acked <= MWS:
                     # Send packet 
-                    print("Sending...")
                     packet_data = sender.split_payload(data)
                     packet = Packet(seq_num, ack_num, packet_data, None, syn=False, ack=False, fin=False)
                     # Add packet to buffer
@@ -222,17 +207,13 @@ def send_handler():
                     expected_ack_num = seq_num + len(packet_data)
                     seq_num += len(packet_data)
 
-                    for p in buffer.packets:
-                        print(p.sequence_num)
                     # Pass through module that emulates packet drop
                     # need to move/change last packet sent time variable
                     # to account for timeout of dropped packets
-                    print("Sending packet with sequence number: " + str(packet.sequence_num))
                     packet.time_sent = time.time()
                     if sender.PLD() == True:
                         sender.log(f, packet, "drop")
                         packets_dropped += 1
-                        print("Packet dropped!")
                     else:
                         sender.send_packet(packet)
                         sender.log(f, packet, "snd")
@@ -264,22 +245,17 @@ def recv_handler():
         sender.log(f, packet, "rcv")
         with t_lock:
             if packet.syn == True and packet.ack == True:
-                print("SYNACK received!")
                 # Check if correct ACK num, then reply with ACK
                 if packet.ack_num == seq_num:
-                    print ("Replying with ACK!")
                     ack_num += 1
                     ack_packet = Packet(seq_num, ack_num, None, time.time(), syn=False, ack=True, fin=False)
                     sender.send_packet(ack_packet)
                     sender.log(f, ack_packet, "snd")
-                    print ("Connection established!")
                     connected = True
-                    print("Commence sending of data")
             if packet.ack == True:
                 # Check if ACK acknowledges last sent packet seq_num
                 # Continue sending as per usual if ack_num is as expected
                 if packet.ack_num == expected_ack_num:
-                    print("ACK received with number: " + str(packet.ack_num))
                     # Remove ACKed packet from buffer
                     for p in buffer.packets:
                         temp = []
@@ -290,29 +266,25 @@ def recv_handler():
                 # Duplicate ACK received, count duplicates and retransmit if
                 # 3 received
                 elif packet.ack_num == last_ack_num:
-                    print("Duplicate ACK received!")
                     curr_duplicate_acks += 1
                     total_duplicate_acks += 1
                     if curr_duplicate_acks == 3:
                         sender.retransmit(buffer, last_ack_num)
                         retransmitted_packets += 1
-                        print ("Retransmitted oldest unACKed packet!")
                         curr_duplicate_acks = 0
                     
                 last_ack_num = packet.ack_num
 
             # FIN received from receiver, complete teardown and exit
             if packet.fin == True:
-                print("FIN received from receiver")
                 ack_num += 1
                 ack_packet = Packet(seq_num, ack_num, None, time.time(), syn=False, ack=True, fin=False)
                 sender.send_packet(ack_packet)
                 sender.log(f, ack_packet, "snd")
-                print("Final ACK sent! Exiting...")
                 connected = False
 
                 # Complete log with final statistics and close file
-                l.write("--------------------------------------------------------\n")
+                f.write("--------------------------------------------------------\n")
                 f.write("Total Data Transferred: " + str(len(data)) + "\n" + "Data Segments Sent: " 
                 + str(data_packets_sent) + "\n" + "Packets Dropped: " + str(packets_dropped) + 
                 "\n" "Retransmitted Segments: " + str(retransmitted_packets)
