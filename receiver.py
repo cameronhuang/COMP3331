@@ -9,6 +9,7 @@
 import sys
 import pickle
 from socket import *
+import time
 
 class Receiver:
     def __init__(self, receiver_port, FileReceived):
@@ -33,6 +34,24 @@ class Receiver:
 
     def send_packet(self, packet, client_address):
         self.socket.sendto(pickle.dumps(packet), client_address)
+
+    def log(self, file, packet, action):
+        time_since_start = round(time.time() - start_time, 2)
+        packet_data_size = 0
+        packet_flag = ""
+        if packet.syn == True:
+            packet_flag += "S"
+        if packet.ack == True:
+            packet_flag += "A"
+        if packet.fin == True:
+            packet_flag += "F"
+        if packet.data != None:
+            packet_flag += "D"
+            packet_data_size = len(packet.data)
+        string = '{:<8s}{:<12s}{:<8s}{:<10s}{:<10s}{:<10s}'.format(str(action), 
+                  str(time_since_start), str(packet_flag), str(packet.sequence_num), 
+                  str(packet_data_size), str(packet.ack_num))
+        file.write(string + "\n")
 
 class Packet:
     # Constructor
@@ -74,6 +93,8 @@ if len(sys.argv) != 3:
     print("Usage: python3 receiver.py <receiver_port> <FileReceived.txt>")
     sys.exit()
 else:
+    start_time = time.time()
+
     # Grab args and place in variables
     receiver_port = int(sys.argv[1])
     FileReceived = sys.argv[2]
@@ -92,8 +113,20 @@ else:
     expected_seq_num = 1
     last_received_seq_num = 0
 
+    # Statistics
+    data_received = 0
+    data_packets_received = 0
+    duplicate_packets_received = 0
+
     # Create buffer that holds packets which are received out of order
     buffer = Packet_Buffer()
+
+    # Create log file
+    l = open("Receiver_log.txt", "a+")
+    string = '{:<8s}{:<12s}{:<8s}{:<10s}{:<10s}{:<10s}'.format("ACTION", "TIME",
+            "FLAGS", "SEQ", "DATA", "ACK")
+    l.write(string + "\n")
+    l.write("--------------------------------------------------------\n")
 
 
     while True:
@@ -102,6 +135,7 @@ else:
         print("Listening...")
         while(connected == False): # Change to if statement?
             syn_packet, sender_address = receiver.receive_packet()
+            receiver.log(l, syn_packet, "rcv")
             if syn_packet.syn == True:
                 print("SYN received!")
                 # Reply with SYNACK
@@ -109,10 +143,12 @@ else:
                 ack_num += 1
                 synack_packet = Packet(seq_num, ack_num, None, syn=True, ack=True, fin=False)
                 receiver.send_packet(synack_packet, sender_address)
+                receiver.log(l, synack_packet, "snd")
                 seq_num += 1
                 # Wait for ACK before establising connection
                 while(ack_received == False):
                     ack_packet, sender_adrress = receiver.receive_packet()
+                    receiver.log(l, ack_packet, "rcv")
                     if ack_packet.ack == True:
                         print("ACK received, connection established!")
                         ack_received = True
@@ -126,25 +162,31 @@ else:
                 print(p.sequence_num)
             # Receive packet
             packet, sender_address = receiver.receive_packet()
+            receiver.log(l, packet, "rcv")
             # Discard duplicate packets
             if packet.sequence_num == last_received_seq_num:
+                duplicate_packets_received += 1
                 continue
             last_received_seq_num = packet.sequence_num
             # If FIN packet, start connection teardown
             if packet.fin == True:
                 ack_num += 1
                 print("FIN packet received, sending ACK, commence teardown")
-                receiver.send_packet(receiver.create_ack_packet(seq_num, ack_num), sender_address)
+                ack_packet = receiver.create_ack_packet(seq_num, ack_num)
+                receiver.send_packet(ack_packet, sender_address)
+                receiver.log(l, ack_packet, "snd")
                 teardown = True
                 break
             
             # Process packet (get data)
             if packet.data != None:
+                data_packets_received += 1
                 print("Packet received with sequence number: " + str(packet.sequence_num))
                 print("Expected sequence number is: " + str(expected_seq_num))
                 # If packet received in correct order
                 if packet.sequence_num == expected_seq_num:
                     f.write(packet.data)
+                    data_received += len(packet.data)
                     ack_num += len(packet.data)
                     # If out of order
                     if out_of_order is True:
@@ -158,7 +200,9 @@ else:
                                 buffer.empty_buffer()
                                 out_of_order = False
                                 print("Out of order packet received. Sending ACK with number: " + str(ack_num))
-                                receiver.send_packet(receiver.create_ack_packet(seq_num, ack_num), sender_address)
+                                ack_packet = receiver.create_ack_packet(seq_num, ack_num)
+                                receiver.send_packet(ack_packet, sender_address)
+                                receiver.log(l, ack_packet, "snd")
                                 expected_seq_num = ack_num
                             # If packets still not all in order, send more duplicate
                             # ACKs with next expected sequence number
@@ -168,18 +212,23 @@ else:
                                 print("Out of order packet received, but packets still out of order!")
                                 print("Sending duplicate ACK with number: " + str(expected_seq_num))
                                 out_of_order = True
-                                receiver.send_packet(receiver.create_ack_packet(seq_num, expected_seq_num), sender_address)
+                                ack_packet = receiver.create_ack_packet(seq_num, expected_seq_num)
+                                receiver.send_packet(ack_packet, sender_address)
+                                receiver.log(l, ack_packet, "snd")
                     # Else if packets in order, just reply with ACK
                     else:
                         # Reply with ACK
                         print("Sending ACK with number: " + str(ack_num))
-                        receiver.send_packet(receiver.create_ack_packet(seq_num, ack_num), sender_address)
+                        ack_packet = receiver.create_ack_packet(seq_num, ack_num)
+                        receiver.send_packet(ack_packet, sender_address)
+                        receiver.log(l, ack_packet, "snd")
                         expected_seq_num = ack_num
                 # Packet received out of order, send duplicate ACK
                 else:
                     print("Packet out of order, sending duplicate ACK with number: " + str(expected_seq_num))
                     buffer.add_packet(packet)
                     ack_num += len(packet.data)
+                    data_received += len(packet.data)
                     out_of_order = True
                     receiver.send_packet(receiver.create_ack_packet(seq_num, expected_seq_num), sender_address)
 
@@ -191,5 +240,11 @@ else:
             seq_num += 1
             fin_packet = receiver.create_fin_packet(seq_num, ack_num)
             receiver.send_packet(fin_packet, sender_address)
+            receiver.log(l, fin_packet, "snd")
             print("FIN packet sent! Exiting...")
+            # Complete log with final statistics and close file
+            l.write("--------------------------------------------------------\n")
+            l.write("Total Data Received: " + str(data_received) + "\n" + "Data Segments Received: "
+            + str(data_packets_received) + "\n" + "Duplicate Segments Received: " + str(duplicate_packets_received) + "\n")
+            l.close()
             sys.exit()

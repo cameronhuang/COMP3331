@@ -312,6 +312,7 @@ def recv_handler():
                 connected = False
 
                 # Complete log with final statistics and close file
+                l.write("--------------------------------------------------------\n")
                 f.write("Total Data Transferred: " + str(len(data)) + "\n" + "Data Segments Sent: " 
                 + str(data_packets_sent) + "\n" + "Packets Dropped: " + str(packets_dropped) + 
                 "\n" "Retransmitted Segments: " + str(retransmitted_packets)
