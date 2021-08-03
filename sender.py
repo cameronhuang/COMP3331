@@ -88,6 +88,7 @@ class Sender:
 
     def check_timeout(self, buffer):
         global retransmitted_packets
+        global last_ack_num
         if (buffer.size() > 0):
             # Retransmit due to timeout
             curr_time = time.time()
@@ -97,7 +98,7 @@ class Sender:
                 retransmitted_packets += 1
 
     def log(self, file, packet, action):
-        time_since_start = round(time.time() - start_time, 2)
+        time_since_start = round(time.time() - start_time, 3)
         packet_data_size = 0
         packet_flag = ""
         if packet.syn == True:
@@ -188,7 +189,7 @@ def send_handler():
                         continue
                     teardown = True
                     seq_num += 1
-                    fin_packet = sender.create_fin_packet(seq_num, ack_num)
+                    fin_packet = Packet(seq_num, ack_num, None, time.time(), syn=False, ack=False, fin=True)
                     sender.send_packet(fin_packet)
                     sender.log(f, fin_packet, "snd")
                     connected = False
@@ -220,8 +221,7 @@ def send_handler():
                         data_packets_sent += 1
             #notify the thread waiting
             t_lock.notify()
-        #sleep for UPDATE_INTERVAL
-        time.sleep(UPDATE_INTERVAL)
+        time.sleep(0.001)
 
 def recv_handler():
     global t_lock
@@ -362,7 +362,7 @@ else:
 
     # Threading ting
     t_lock = threading.Condition()
-    UPDATE_INTERVAL = 1
+    # UPDATE_INTERVAL = 1
 
     recv_thread=threading.Thread(name="RecvHandler", target=recv_handler)
     recv_thread.daemon=True
@@ -374,5 +374,5 @@ else:
 
 # Main loop
 while awake is True:
-    time.sleep(0.1)
+    time.sleep(0)
     
