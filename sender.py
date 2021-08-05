@@ -30,32 +30,18 @@ class Sender:
     socket = socket(AF_INET, SOCK_DGRAM)
     time_last_pkt_sent = 0
     
-
+    # Receives packet from client and returns packet and client address
     def receive_packet(self):
         data, client_address = self.socket.recvfrom(2048)
         packet = pickle.loads(data)
         return packet, client_address
 
-    # def create_syn_packet(self, sequence_num, ack_num):
-    #     syn_packet = Packet(sequence_num, ack_num, None, None, syn=True, ack=False, fin=False)
-    #     return syn_packet
-
-    # def create_data_packet(self, sequence_num, ack_num, data):
-    #     data_packet = Packet(sequence_num, ack_num, data, None, syn=False, ack=False, fin=False)
-    #     return data_packet
-
-    # def create_ack_packet(self, sequence_num, ack_num):
-    #     ack_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=True, fin=False)
-    #     return ack_packet
-
-    # def create_fin_packet(self, sequence_num, ack_num):
-    #     fin_packet = Packet(sequence_num, ack_num, None, None, syn=False, ack=False, fin=True)
-    #     return fin_packet
-
+    # Sends packet to receiver
     def send_packet(self, packet):
         self.socket.sendto(pickle.dumps(packet), (self.receiver_host_ip, self.receiver_port))
         self.time_last_pkt_sent = time.time()
 
+    # Retransmit the packet with given sequence number to receiver
     def retransmit(self, buffer, seq_num):
         for packet in buffer.packets:
             if packet.sequence_num == seq_num:
@@ -63,7 +49,7 @@ class Sender:
                 self.send_packet(packet)
                 self.log(f, packet, "snd")
 
-    # This function emulates packet drop by generating a random float in the range
+    # Emulates packet drop by generating a random float in the range
     # [0, 1] and drops the packet if it is less than or equal to pdrop
     # Seed initialised at start of program
     def PLD(self):
@@ -73,7 +59,7 @@ class Sender:
         else:
             return True
 
-    # This function splits the data into packet playloads of size equal to the given MSS
+    # Splits the data into packet playloads of size equal to the given MSS
     # It takes in the data and the index of where to start creating the payload
     def split_payload(self, data):
         global index
@@ -86,6 +72,8 @@ class Sender:
         index += self.MSS
         return payload
 
+    # Checks if the oldest unacknowledged packet has timed out, and retransmits
+    # it if it has
     def check_timeout(self, buffer):
         global retransmitted_packets
         global last_ack_num
@@ -96,7 +84,8 @@ class Sender:
             if time_since_sent > self.timeout:
                 sender.retransmit(buffer, last_ack_num)
                 retransmitted_packets += 1
-
+    
+    # Logs action done by sender in log file called "Sender_log.txt"
     def log(self, file, packet, action):
         time_since_start = round(time.time() - start_time, 3)
         packet_data_size = 0
@@ -221,7 +210,7 @@ def send_handler():
                         data_packets_sent += 1
             #notify the thread waiting
             t_lock.notify()
-        time.sleep(0.001)
+        time.sleep(0.01)
 
 def recv_handler():
     global t_lock
